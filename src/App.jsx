@@ -943,7 +943,7 @@ function LocationManager({ locations, onAdd, onDelete }) {
                       <MapPin size={11} /> {l.lat}, {l.lng} <ExternalLink size={10} />
                     </a>
                   </div>
-                  <button className="secmon-icon-btn" onClick={() => onDelete(l.id)}><Trash2 size={14} /></button>
+                  {/* <button className="secmon-icon-btn" onClick={() => onDelete(l.id)}><Trash2 size={14} /></button> */}
                 </div>
               ))}
             </div>
