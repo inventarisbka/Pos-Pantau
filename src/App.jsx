@@ -124,8 +124,11 @@ export default function SecurityMonitor() {
 
   async function addLocation(loc) {
     try {
-      const saved = await createLocation(loc);
-      setLocations((prev) => [saved, ...prev]);
+      // createLocation() lewat form+iframe tidak bisa mengembalikan data
+      // (respons cross-origin tidak bisa dibaca JS), jadi kita refetch dari
+      // sheet supaya state di React sinkron dengan data yang sebenarnya tersimpan.
+      await createLocation(loc);
+      await loadAll();
       showToast("Titik pantau berhasil didaftarkan");
     } catch (e) {
       showToast(e.message || "Gagal menyimpan titik pantau", "error");
@@ -141,12 +144,14 @@ export default function SecurityMonitor() {
   async function addReport(meta, photoDataUrl) {
     try {
       const loc = locations.find((l) => l.id === meta.locationId);
-      const saved = await createReport({
+      // Sama seperti addLocation: refetch dari sheet setelah kirim,
+      // bukan pakai hasil balikan createReport() (tidak tersedia).
+      await createReport({
         ...meta,
         locationName: loc ? loc.name : "",
         photo: photoDataUrl || null,
       });
-      setReports((prev) => [saved, ...prev]);
+      await loadAll();
       showToast("Laporan berhasil dikirim");
     } catch (e) {
       showToast(e.message || "Gagal mengirim laporan", "error");
@@ -841,6 +846,32 @@ function LocationManager({ locations, onAdd, onDelete }) {
   const [lng, setLng] = useState("");
   const [geoLoading, setGeoLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [pageSize, setPageSize] = useState(5);
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(locations.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIdx = (currentPage - 1) * pageSize;
+  const pagedLocations = locations.slice(startIdx, startIdx + pageSize);
+
+  function handlePageSizeChange(e) {
+    setPageSize(Number(e.target.value));
+    setPage(1);
+  }
+
+  function pageNumbers() {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const nums = new Set([1, totalPages, currentPage, currentPage - 1, currentPage + 1]);
+    const sorted = [...nums].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+    const result = [];
+    sorted.forEach((n, i) => {
+      if (i > 0 && n - sorted[i - 1] > 1) result.push("…");
+      result.push(n);
+    });
+    return result;
+  }
 
   async function captureGeo() {
     setGeoLoading(true);
@@ -901,20 +932,70 @@ function LocationManager({ locations, onAdd, onDelete }) {
         {locations.length === 0 ? (
           <div className="secmon-empty">Belum ada titik pantau. Registrasikan titik pertama di atas.</div>
         ) : (
-          <div className="secmon-loc-list">
-            {locations.map((l) => (
-              <div key={l.id} className="secmon-loc-card">
-                <div style={{ minWidth: 0 }}>
-                  <h3>{l.name}</h3>
-                  {l.detail && <p>{l.detail}</p>}
-                  <a href={gmapsUrl(l.lat, l.lng)} target="_blank" rel="noopener noreferrer">
-                    <MapPin size={11} /> {l.lat}, {l.lng} <ExternalLink size={10} />
-                  </a>
+          <>
+            <div className="secmon-loc-list">
+              {pagedLocations.map((l) => (
+                <div key={l.id} className="secmon-loc-card">
+                  <div style={{ minWidth: 0 }}>
+                    <h3>{l.name}</h3>
+                    {l.detail && <p>{l.detail}</p>}
+                    <a href={gmapsUrl(l.lat, l.lng)} target="_blank" rel="noopener noreferrer">
+                      <MapPin size={11} /> {l.lat}, {l.lng} <ExternalLink size={10} />
+                    </a>
+                  </div>
+                  <button className="secmon-icon-btn" onClick={() => onDelete(l.id)}><Trash2 size={14} /></button>
                 </div>
-                <button className="secmon-icon-btn" onClick={() => onDelete(l.id)}><Trash2 size={14} /></button>
+              ))}
+            </div>
+
+            <div className="secmon-pagination">
+              <div className="secmon-pagination-size">
+                Tampilkan
+                <select value={pageSize} onChange={handlePageSizeChange}>
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                </select>
+                baris — {startIdx + 1}–{Math.min(startIdx + pageSize, locations.length)} dari {locations.length}
               </div>
-            ))}
-          </div>
+
+              {totalPages > 1 && (
+                <div className="secmon-pagination-nav">
+                  <button
+                    type="button"
+                    className="secmon-page-btn"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  {pageNumbers().map((n, i) =>
+                    n === "…" ? (
+                      <span key={`ellipsis-${i}`} className="secmon-pagination-info" style={{ margin: 0 }}>…</span>
+                    ) : (
+                      <button
+                        key={n}
+                        type="button"
+                        className={`secmon-page-btn ${n === currentPage ? "active" : ""}`}
+                        onClick={() => setPage(n)}
+                      >
+                        {n}
+                      </button>
+                    )
+                  )}
+                  <button
+                    type="button"
+                    className="secmon-page-btn"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
